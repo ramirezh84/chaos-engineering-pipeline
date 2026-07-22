@@ -78,7 +78,7 @@ INFRA_MD_COMPONENT_KEYWORDS = {
     "fargate": "ecs-fargate",
     "aurora": "aurora-global",
     "elasticache": "elasticache",
-    "kafka": "kafka-broker",
+    "kafka": "kafka-mbus",
     "route53": "route53",
     "route 53": "route53",
     "apinlb": "nlb",
@@ -171,13 +171,13 @@ COMPONENT_TEMPLATES = {
          "Service serves correct (slower) responses from the DB path; DB absorbs the amplified load.",
          "Security-group deny on Redis (PERF)", 2, 4, None),
     ],
-    "kafka-broker": [
-        ("kafka-unreachable", "Kafka broker unreachable",
+    "kafka-mbus": [
+        ("kafka-unreachable", "Kafka broker (MBUS) unreachable",
          "Producers buffer without unbounded growth; consumers idle without crash-loop; no-loss catch-up on restore.",
-         "Network blackhole to the message broker (PERF)", 3, 5, None),
-        ("kafka-token", "Token-provider failure (Kafka OAUTHBEARER re-auth)",
+         "Network blackhole to MBUS (PERF)", 3, 5, None),
+        ("kafka-ida", "IDP token failure (Kafka OAUTHBEARER re-auth)",
          "Sessions survive to re-auth; failed re-auth backs off sanely; failure signature distinct from broker loss.",
-         "Token-provider path block (PERF)", 2, 4, None),
+         "IDP path block (PERF)", 2, 4, None),
     ],
     "sqs": [
         ("sqs-dlq", "SQS processing failure — DLQ & redrive",
@@ -356,33 +356,33 @@ def infra_component_templates(pkg, nid, card, jf, jid, crit, j_dc, node_kafka_ro
         ka = cfg.get("kafka_auth") or {}
         if ka.get("protocol") == "SASL_SSL":
             pkg.add(
-                dedup_key=("infra-kafka-broker-kafka-unreachable", nid), layer="Infra", target=nid,
-                scenario="[kafka-broker] Kafka broker unreachable",
+                dedup_key=("infra-kafka-mbus-kafka-unreachable", nid), layer="Infra", target=nid,
+                scenario="[kafka-mbus] Kafka broker (MBUS) unreachable",
                 hypothesis="Producers buffer via outbox without unbounded growth; "
                            "consumers idle without crash-loop; no-loss catch-up on restore.",
                 why=f"Scan-card evidence: kafka_auth protocol={ka.get('protocol')}, "
                     f"mechanism={ka.get('mechanism')}, token_provider="
-                    f"{ka.get('token_provider')} — this service is a confirmed broker client.",
-                tooling="Network blackhole to the message broker (PERF)",
+                    f"{ka.get('token_provider')} — this service is a confirmed MBUS client.",
+                tooling="Network blackhole to MBUS (PERF)",
                 base_l=3, base_s=5, criticality=crit, data_class=j_dc, journey=jid,
                 status="Proposed (evidence-confirmed)",
                 assertion=f"[{jid}] zero event loss for this journey across a broker outage")
             pkg.add(
-                dedup_key=("infra-kafka-broker-kafka-token", nid), layer="Infra", target=nid,
-                scenario="[kafka-broker] Token-provider failure (Kafka OAUTHBEARER re-auth)",
+                dedup_key=("infra-kafka-mbus-kafka-ida", nid), layer="Infra", target=nid,
+                scenario="[kafka-mbus] IDP token failure (Kafka OAUTHBEARER re-auth)",
                 hypothesis="Sessions survive to re-auth; failed re-auth backs off sanely; "
                            "signature distinct from broker-unreachable.",
                 why=f"Scan-card evidence: mechanism={ka.get('mechanism')}, "
                     f"token_provider={ka.get('token_provider')}.",
-                tooling="Token-provider path block (PERF)",
+                tooling="IDP path block (PERF)",
                 base_l=2, base_s=4, criticality=crit, data_class=j_dc, journey=jid,
                 status="Proposed (evidence-confirmed)",
-                assertion=f"[{jid}] event flow resumes after a token-provider outage without restarts")
+                assertion=f"[{jid}] event flow resumes after an IDP outage without restarts")
         for ob in card.get("outbound", []):
             if ob.get("via") == "http" and "kms" in str(ob.get("resolved", "")).lower():
                 pkg.add(
                     dedup_key=("infra-kms-kms-deny", nid), layer="Infra", target=nid,
-                    scenario="[kms] KMS (KMS) unavailability — envelope-encryption path",
+                    scenario="[kms] KMS (VaultKMS) unavailability — envelope-encryption path",
                     hypothesis="Publishing fails closed with an explicit KMS error (no "
                                "silent drop, no plaintext); halts visibly, resumes on restore.",
                     why=f"Scan-card evidence: outbound to "
@@ -394,7 +394,7 @@ def infra_component_templates(pkg, nid, card, jf, jid, crit, j_dc, node_kafka_ro
                     base_l=2, base_s=5, criticality=crit, data_class=j_dc, journey=jid,
                     status="Proposed (evidence-confirmed)",
                     assertion=f"[{jid}] no event published unencrypted or silently dropped")
-        hosts = [h.get("name", "") for h in (card.get("impress") or {}).get("hosts", [])]
+        hosts = [h.get("name", "") for h in (card.get("dnsreg") or {}).get("hosts", [])]
         ro_hosts = [h for h in hosts if "-ro" in h]
         if ro_hosts:
             pkg.add(
@@ -402,7 +402,7 @@ def infra_component_templates(pkg, nid, card, jf, jid, crit, j_dc, node_kafka_ro
                 scenario="Read-only endpoint failure — reader/writer path split",
                 hypothesis="Loss of the -ro endpoint degrades reads per design without "
                            "impacting writes.",
-                why=f"Scan-card evidence (impress): read-only hostname(s) {ro_hosts} "
+                why=f"Scan-card evidence (dnsreg): read-only hostname(s) {ro_hosts} "
                     f"alongside {[h for h in hosts if h not in ro_hosts]}.",
                 tooling="DNS/endpoint block on the -ro host (PERF)",
                 base_l=2, base_s=3, criticality=crit, data_class=j_dc, journey=jid,
@@ -570,7 +570,7 @@ def generate(journeys, cards, declared_components=None, infra_mds=None):
                               f"without autoscale headroom")
 
             # INFRA: component templates — declared-architecture baseline +
-            # evidence-triggered (Kafka/IdP/KMS/reader-endpoint/topic-encryption)
+            # evidence-triggered (Kafka/IDP/KMS/reader-endpoint/topic-encryption)
             card_obj = cards[nid][1] if nid in cards else None
             infra_component_templates(pkg, nid, card_obj, jf, jid, crit, j_dc,
                                       kafka_roles.get(nid, {}), declared_components,

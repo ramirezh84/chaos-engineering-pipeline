@@ -18,12 +18,12 @@ chaos-pipeline/
                                                     Service Inventory, App & Infra Scan Instructions tabs,
                                                     Priority Model, Wave Plan. consolidate.py appends to a COPY.
   templates/
-    app-a-infra-components-by-env.EXAMPLE.md       <- example of the per-service infra declaration format
+    als-infra-components-by-env.EXAMPLE.md       <- example of the per-service infra declaration format
   examples/
     inputs/
       01-account-origination-COMPLETE.json       <- real journey graph (nodes/edges/grades)
-      app-a.json           <- real per-service scan card
-      infra-md/app-a-infra-components-by-env.md    <- real per-service infra declaration
+      account-locator-service.json           <- real per-service scan card
+      infra-md/als-infra-components-by-env.md    <- real per-service infra declaration
     outputs/
       Chaos_Package_EXAMPLE.xlsx                 <- what the generator produced from those inputs
       Chaos_Dashboard_EXAMPLE.html               <- same data as an interactive single-file dashboard

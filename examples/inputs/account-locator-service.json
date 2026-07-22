@@ -1,0 +1,250 @@
+{
+  "service": "account-locator-service",
+  "app": "LOCR",
+  "scanned_from": {
+    "app_git_sha": "ebd3bd2c129adc6c9e1841c2a55325b0e6e5070",
+    "infra_git_sha": "412a85c9114080c04208f8cf34b08f540ba840203",
+    "scanner": "Claude-manual-poc",
+    "date": "2026-07-14"
+  },
+  "comment": "infra-derived: hosts OTHER services resolve to when they call ALS",
+  "dnsreg": {
+    "hosts": [
+      {
+        "name": "locator.corebank.apps.111111111111.prod.example.internal"
+      },
+      {
+        "name": "locator-core.corebank.prod.example.internal"
+      },
+      {
+        "name": "locator-core-ro.corebank.prod.example.internal"
+      }
+    ],
+    "evidence": [
+      {
+        "file": "repos/account-locator-service-infra/prod/laclctr-111111111111-us-east-1-apigw-placelctr1-v1/variables.tfvars",
+        "line": 32,
+        "snippet": "{\"domain_name\" : \"locator.corebank.apps.111111111111.prod.example.internal\"}"
+      },
+      {
+        "file": "repos/account-locator-service-infra/prod/global.yaml",
+        "line": 28,
+        "snippet": "{\"file\": \"record_name: locator-core.corebank\"}"
+      }
+    ]
+  },
+  "config": {
+    "kafka_auth": {
+      "protocol": "SASL_SSL",
+      "mechanism": "OAUTHBEARER",
+      "token_provider": "mbus-idpTokenProvider (IDP)",
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 6,
+          "snippet": "protocol: SASL_SSL"
+        }
+      ]
+    }
+  },
+  "resiliency": {
+    "retry": "db_layer_metrics_only; no circuit_breaker configured",
+    "instances": [
+      "GetCustomerInquiry",
+      "SaveOrUpdateDatabaseInquiry",
+      "DeleteDatabaseInquiry"
+    ],
+    "config": {
+      "time_attempts": 3,
+      "wait_between_pop_backoff": 20,
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application.yml",
+          "line": 40,
+          "snippet": "timeoutMilliseconds: \"}]"
+        }
+      ]
+    }
+  },
+  "circuit_breaker": "none",
+  "destinations": {
+    "kafka_source_sqs_message": {
+      "role": "read-write",
+      "note": "hikari pool, connection-timeout 50ms",
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 25,
+          "snippet": "{\"job\": \"appproject2\"}"
+        }
+      ]
+    }
+  },
+  "outbound": [
+    {
+      "via": "kafka",
+      "topic": "core_account-servicing-account_boarding-account_locator_created-c001",
+      "resolved": null,
+      "resolve": "narrative",
+      "producer": {
+        "pattern": "transactional-outbox",
+        "encryption": "app2-vkms",
+        "delivery_timeout": "unset"
+      },
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-producer/src/main/java/net/examplebank/corebank/core/locator/mgmt/producer/AccountCreationLocatorProducerMessagePublisher.java",
+          "line": 50,
+          "snippet": "{\"outbox.publish(message)\"}"
+        },
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 59,
+          "snippet": "{\"account-service-account_boarding-account_locator_created-c001\"}"
+        }
+      ]
+    },
+    {
+      "via": "kafka",
+      "topic": "core_account-servicing-account_boarding-account_locator_updated-c001",
+      "resolved": null,
+      "resolve": "narrative",
+      "producer": {
+        "pattern": "transactional-outbox",
+        "encryption": "app2-vkms",
+        "delivery_timeout": "unset"
+      },
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 60,
+          "snippet": "{\"account-service-account_boarding-account_locator_updated-c001\"}"
+        }
+      ]
+    },
+    {
+      "via": "kafka",
+      "topic": "core_account-servicing-account_boarding-customer_locator_created-c001",
+      "resolved": null,
+      "resolve": "narrative",
+      "producer": {
+        "pattern": "transactional-outbox",
+        "encryption": "app2-vkms",
+        "delivery_timeout": "unset"
+      },
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 61,
+          "snippet": "{\"customer_locator_created-c001\"}"
+        }
+      ]
+    },
+    {
+      "via": "kafka",
+      "topic": "core_account-servicing-account_boarding-customer_locator_updated-c001",
+      "resolved": null,
+      "resolve": "narrative",
+      "producer": {
+        "pattern": "transactional-outbox",
+        "encryption": "app2-vkms",
+        "delivery_timeout": "unset"
+      },
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 62,
+          "snippet": "{\"customer_locator_updated-c001\"}"
+        }
+      ]
+    },
+    {
+      "via": "http",
+      "comment": "HTTP: vkms KMS (envelope encryption for the locator events)",
+      "target_raw": {
+        "client": "appproject2",
+        "host": "api-apps-gds1-na.example.internal/harakms",
+        "resource_uri": "URN:RS-000000-00003-VaultKMS-PROD"
+      },
+      "resolved": "vkms-kms",
+      "resolution_source": "client",
+      "retry": {
+        "http_retry_max_attempts": 5,
+        "timeouts": {
+          "connect_ms": null,
+          "read_ms": null
+        }
+      },
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 72,
+          "snippet": "{\"vkms-uri: https://api-apps-gds1-na.example.internal/harakms/api/gp/api/rest/v1/\"}"
+        },
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 74,
+          "snippet": "{\"http_retry_max_attempts: 5\"}"
+        }
+      ]
+    },
+    {
+      "via": "http",
+      "comment": "HTTP: Split (in feature flags (via internal cloud proxy))",
+      "target_raw": {
+        "client": "splitclient",
+        "host": "cloudproxy.prod.example.internal:11443"
+      },
+      "resolved": "split-io",
+      "resolution_source": "client",
+      "evidence": []
+    }
+  ],
+  "comment_inbound": "INBOUND: endpoints THIS service serves, HTTP callers are NOT in code (any client may call); the journey narrative names the caller",
+  "inbound": [
+    {
+      "via": "http",
+      "source_raw": {},
+      "resolved": null,
+      "resolve": "narrative",
+      "endpoint": "GET retrieveCustomerPlatform / retrieveAccountPlatform (ledger platform for ECT/account)",
+      "server_idempotency": "request-id (cbs-idempotency, postgres, retention PT15M)",
+      "auth": "Authorization header; OAUTHBEARER/ADFS (server-validated)",
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-rest/src/main/java/net/examplebank/corebank/core/locator/mgmt/rest/controller/LocatorController.java",
+          "line": 129,
+          "snippet": "{\"public ResponseEntity<AccountPlatformIndicatorResponse> retrieveAccountPlatformIndicator(..)\"}"
+        },
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 103,
+          "snippet": "{\"idempotency-key: \\\"request-id\\\"\"}"
+        }
+      ]
+    },
+    {
+      "via": "http",
+      "source_raw": {},
+      "resolved": null,
+      "resolve": "narrative",
+      "endpoint": "POST insertNewAccount / PUT updateAccount / createCustomerPlatform (locator-writes)",
+      "server_idempotency": "request-id (cbs-idempotency, postgres, retention PT15M)",
+      "auth": "Authorization header; OAUTHBEARER/ADFS (server-validated)",
+      "evidence": [
+        {
+          "file": "repos/account-locator-service/account-locator-service-rest/src/main/java/net/examplebank/corebank/core/locator/mgmt/rest/controller/LocatorController.java",
+          "line": 116,
+          "snippet": "{\"public ResponseEntity<InsertNewAccountResponse> insertNewAccount(..))\"}"
+        },
+        {
+          "file": "repos/account-locator-service/account-locator-service-main/src/main/resources/application-prod-use1.yml",
+          "line": 103,
+          "snippet": "{\"idempotency-key: \\\"request-id\\\"\"}"
+        }
+      ]
+    }
+  ],
+  "comment_unresolved": "no unresolved identities in this card (all outbound targets resolved via stable signals)",
+  "unresolved": []
+}

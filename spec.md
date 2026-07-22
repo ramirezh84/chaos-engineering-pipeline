@@ -27,7 +27,7 @@ Every fact you record has exactly one of these statuses. Never invent a sixth.
 | `NOT_FOUND` | Searched using the listed patterns; genuinely absent. List the patterns you used. |
 | `NOT_CONFIGURED` | No explicit value set; a library/framework default would apply. **Do not state what that default is** unless you can cite the exact library version's documented behavior — otherwise leave the value blank and mark it for human verification. Naming the library+version you found in the Dependency Census is enough; do not guess the number. |
 | `AMBIGUOUS` | Multiple candidate values exist (e.g., a Maven property inherited from a parent POM you can't fully resolve statically, or a Spring profile-conditional bean). Record **every** candidate and its source. Never pick one. |
-| `EXTERNAL_CONFIG` | The key/reference exists in code, but its value is resolved at runtime from Secrets Manager, Parameter Store, or a vault (external-vault-style pattern). Record the reference pattern, never attempt to guess the resolved value. |
+| `EXTERNAL_CONFIG` | The key/reference exists in code, but its value is resolved at runtime from Secrets Manager, Parameter Store, or a vault (VaultSM-ASM-style pattern). Record the reference pattern, never attempt to guess the resolved value. |
 | `NOT_APPLICABLE` | The category doesn't apply to this repo (e.g., a Kafka consumer audit on a repo with no Kafka consumers). |
 
 **If you catch yourself about to write a plausible-sounding number that you did not read
@@ -76,13 +76,13 @@ before writing the output.
 
 ```
 <root>/
-  svc-a-app/
-  svc-a-infra/
-  svc-d-app/
-  svc-d-infra/
+  01-als-acct-app/
+  01-als-acct-infra/
+  02-arm-acct-app/
+  02-arm-acct-infra/
   ...
-  17-dal-coda-app/
-  17-dal-coda-infra/
+  17-dal-alrt-app/
+  17-dal-alrt-infra/
   scan-output/            <- you create this
   spec.md                 <- this file
   Chaos_Engineering_Scenario_Catalog_v2.xlsx   <- the companion workbook
@@ -130,12 +130,12 @@ matching `{num, acronym, apg}`. Write `scan-output/repo-registry.json`:
 [
   {
     "num": "01",
-    "acronym": "app-a",
-    "apg": "grp-a",
-    "app_repo": "svc-a-app",
-    "infra_repo": "svc-a-infra",
-    "app_path": "/abs/path/svc-a-app",
-    "infra_path": "/abs/path/svc-a-infra",
+    "acronym": "als",
+    "apg": "acct",
+    "app_repo": "01-als-acct-app",
+    "infra_repo": "01-als-acct-infra",
+    "app_path": "/abs/path/01-als-acct-app",
+    "infra_path": "/abs/path/01-als-acct-infra",
     "app_present": true,
     "infra_present": true
   }
@@ -177,8 +177,8 @@ Write `scan-output/provenance.json` (one entry per repo, both app and infra):
 
 ```json
 {
-  "repo": "svc-a-app",
-  "path": "/abs/path/svc-a-app",
+  "repo": "01-als-acct-app",
+  "path": "/abs/path/01-als-acct-app",
   "branch": "main",
   "sha_before_pull": "abc123...",
   "sha_after_pull": "def456...",
@@ -233,12 +233,12 @@ Write `scan-output/<app_repo>/census.json`:
 
 ```json
 {
-  "repo": "svc-a-app",
+  "repo": "01-als-acct-app",
   "sha": "def456...",
   "build_tool": "maven",
   "modules": [
-    {"path": "app-a-api", "artifactId": "app-a-api", "packaging": "jar"},
-    {"path": "app-a-core", "artifactId": "app-a-core", "packaging": "jar"}
+    {"path": "als-api", "artifactId": "als-api", "packaging": "jar"},
+    {"path": "als-core", "artifactId": "als-core", "packaging": "jar"}
   ],
   "parent_pom": {"path": "pom.xml", "groupId": "...", "artifactId": "...", "version": "..."},
   "resolution_method": "mvn_effective_pom",
@@ -250,9 +250,9 @@ Write `scan-output/<app_repo>/census.json`:
   },
   "spring_profiles_detected": ["default", "perf", "prod"],
   "config_files": [
-    "app-a-api/src/main/resources/application.yml",
-    "app-a-api/src/main/resources/application-perf.yml",
-    "app-a-api/src/main/resources/application-prod.yml"
+    "als-api/src/main/resources/application.yml",
+    "als-api/src/main/resources/application-perf.yml",
+    "als-api/src/main/resources/application-prod.yml"
   ]
 }
 ```
@@ -505,10 +505,10 @@ Write `scan-output/<app_repo>/profile-diff.json`:
 
 ```json
 {
-  "repo": "svc-a-app",
+  "repo": "01-als-acct-app",
   "diffs": [
     {
-      "key": "resilience4j.circuitbreaker.instances.extClient.slowCallDurationThreshold",
+      "key": "resilience4j.circuitbreaker.instances.cbsClient.slowCallDurationThreshold",
       "perf_value": {evidence object},
       "prod_value": {evidence object},
       "classification": "suspicious",
@@ -926,10 +926,10 @@ duplicate or second-guess it here.
 
 ### 9.2 Join key: canonical service id, not repo folder name
 
-Journey nodes reference services by an id like `"app-a"` — the same
+Journey nodes reference services by an id like `"account-locator-service"` — the same
 string each service's own app-scan `findings.json` should declare at its top level as
 `"service"`. **Join on that field.** Do not join on the repo-registry acronym
-(`app-a`) as the primary key — it's a folder-naming convenience, not the identity the journey
+(`als`) as the primary key — it's a folder-naming convenience, not the identity the journey
 graph actually uses. Fall back to a weak acronym-substring match only when no canonical id is
 found, and flag every such fallback explicitly (`WEAK_ACRONYM_FALLBACK:<acronym>`) — never treat
 it as equivalent to a real match.
@@ -942,7 +942,7 @@ string other services' journey files use to reference this one.
 
 The `findings.json` shape specified in Section 4.2 of this runbook was a reasonable starting
 design, but if you already have a working scanner producing cards shaped like the
-`app-a.json` example (top-level `service`, `scanned_from`, `resiliency`,
+`account-locator-service.json` example (top-level `service`, `scanned_from`, `resiliency`,
 `circuit_breaker`, `destinations`, `outbound`/`inbound` with `resolved`/`resolve: narrative`
 pairs), **that real schema is canonical — adapt Section 4.2's subagent prompt and output schema
 to match it** rather than maintaining two incompatible shapes. The accuracy-contract principles
@@ -1320,17 +1320,17 @@ Begin with Section 1.
     preflight.json
     repo-registry.json
     provenance.json
-    svc-a-app/
+    01-als-acct-app/
       census.json
       findings.json
       profile-diff.json
-    svc-a-infra/
+    01-als-acct-infra/
       infra_findings.json
-    svc-d-app/
+    02-arm-acct-app/
       ...
     ... (one folder per repo)
-  svc-a-app/          (your existing repos, untouched except git pull)
-  svc-a-infra/
+  01-als-acct-app/          (your existing repos, untouched except git pull)
+  01-als-acct-infra/
   ...
 ```
 
