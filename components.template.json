@@ -1,0 +1,15 @@
+{
+  "_instructions": "Per-service infra component declaration. List, for each service, the infra components it actually uses. The generator creates infra chaos scenarios per service from this list — only for components the service really has. Valid component names: ecs-fargate, aurora-global, rds-proxy, elasticache, kafka-broker, sqs, sns, lambda, eventbridge, s3, api-gateway, nlb, alb, route53, secrets-manager, parameter-store, kms, dynamodb. Delete this _instructions key when done, or leave it — it is ignored. This file is TEMPORARY: once the infra repo scan (spec.md Phase 3) runs, it produces this same information automatically from your Terraform/IaC, with evidence, and replaces this hand-made file.",
+
+  "app-a": ["ecs-fargate", "aurora-global", "elasticache", "kafka-broker", "s3", "api-gateway", "nlb", "alb", "route53", "secrets-manager", "kms"],
+
+  "_example_note": "The APP-A line above is filled in as a real example (components confirmed from its scan card and the platform architecture). Fill in the remaining 16 services below the same way — remove any component a service does not use, add any it does.",
+
+  "app-b": ["ecs-fargate", "aurora-global", "kafka-broker", "api-gateway", "nlb", "alb", "route53", "secrets-manager"],
+  "app-c": ["ecs-fargate", "aurora-global", "elasticache", "kafka-broker", "api-gateway", "nlb", "alb", "route53", "secrets-manager"],
+  "app-d": ["ecs-fargate", "aurora-global", "elasticache", "api-gateway", "nlb", "alb", "route53", "secrets-manager"],
+  "app-e": ["ecs-fargate", "aurora-global", "kafka-broker", "api-gateway", "nlb", "alb", "route53", "secrets-manager", "kms"],
+  "app-f": ["ecs-fargate", "aurora-global", "elasticache", "kafka-broker", "secrets-manager"],
+  "app-g": ["ecs-fargate", "aurora-global", "rds-proxy", "elasticache", "kafka-broker", "api-gateway", "nlb", "alb", "secrets-manager", "parameter-store", "kms"],
+  "app-h": ["ecs-fargate", "aurora-global", "s3", "api-gateway", "nlb", "alb", "eventbridge", "secrets-manager"]
+}

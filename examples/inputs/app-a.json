@@ -1,0 +1,250 @@
+{
+  "service": "app-a",
+  "app": "APP-GRP-4",
+  "scanned_from": {
+    "app_git_sha": "0000000",
+    "infra_git_sha": "0000000",
+    "scanner": "Claude-manual-poc",
+    "date": "2026-07-14"
+  },
+  "comment": "infra-derived: hosts OTHER services resolve to when they call APP-A",
+  "impress": {
+    "hosts": [
+      {
+        "name": "app-a.prod.example.com"
+      },
+      {
+        "name": "app-a.prod.example.com"
+      },
+      {
+        "name": "app-a-ro.prod.example.com"
+      }
+    ],
+    "evidence": [
+      {
+        "file": "repos/app-a-infra/prod/app-a-use1-gw-v1/variables.tfvars",
+        "line": 32,
+        "snippet": "{\"domain_name\" : \"app-a.prod.example.com\"}"
+      },
+      {
+        "file": "repos/app-a-infra/prod/global.yaml",
+        "line": 28,
+        "snippet": "{\"file\": \"record_name: lookup-accts.platform\"}"
+      }
+    ]
+  },
+  "config": {
+    "kafka_auth": {
+      "protocol": "SASL_SSL",
+      "mechanism": "OAUTHBEARER",
+      "token_provider": "broker-token-provider",
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 6,
+          "snippet": "protocol: SASL_SSL"
+        }
+      ]
+    }
+  },
+  "resiliency": {
+    "retry": "db_layer_metrics_only; no circuit_breaker configured",
+    "instances": [
+      "GetCustomerInquiry",
+      "SaveOrUpdateDatabaseInquiry",
+      "DeleteDatabaseInquiry"
+    ],
+    "config": {
+      "time_attempts": 3,
+      "wait_between_pop_backoff": 20,
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application.yml",
+          "line": 40,
+          "snippet": "timeoutMilliseconds: \"}]"
+        }
+      ]
+    }
+  },
+  "circuit_breaker": "none",
+  "destinations": {
+    "kafka_source_sqs_message": {
+      "role": "read-write",
+      "note": "hikari pool, connection-timeout 50ms",
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 25,
+          "snippet": "{\"job\": \"app-a\"}"
+        }
+      ]
+    }
+  },
+  "outbound": [
+    {
+      "via": "kafka",
+      "topic": "domain-events.app-a.lookup-created.v1",
+      "resolved": null,
+      "resolve": "narrative",
+      "producer": {
+        "pattern": "transactional-outbox",
+        "encryption": "kms-envelope",
+        "delivery_timeout": "unset"
+      },
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-producer/src/main/java/com/example/platform/accts/lookup/mgmt/producer/AccountCreationLookupProducerMessagePublisher.java",
+          "line": 50,
+          "snippet": "{\"outbox.publish(message)\"}"
+        },
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 59,
+          "snippet": "{\"account-service-account_boarding-account_lookup_created.v1\"}"
+        }
+      ]
+    },
+    {
+      "via": "kafka",
+      "topic": "domain-events.app-a.lookup-updated.v1",
+      "resolved": null,
+      "resolve": "narrative",
+      "producer": {
+        "pattern": "transactional-outbox",
+        "encryption": "kms-envelope",
+        "delivery_timeout": "unset"
+      },
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 60,
+          "snippet": "{\"account-service-account_boarding-account_lookup_updated.v1\"}"
+        }
+      ]
+    },
+    {
+      "via": "kafka",
+      "topic": "domain-events.app-a.customer-lookup-created.v1",
+      "resolved": null,
+      "resolve": "narrative",
+      "producer": {
+        "pattern": "transactional-outbox",
+        "encryption": "kms-envelope",
+        "delivery_timeout": "unset"
+      },
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 61,
+          "snippet": "{\"customer_lookup_created.v1\"}"
+        }
+      ]
+    },
+    {
+      "via": "kafka",
+      "topic": "domain-events.app-a.customer-lookup-updated.v1",
+      "resolved": null,
+      "resolve": "narrative",
+      "producer": {
+        "pattern": "transactional-outbox",
+        "encryption": "kms-envelope",
+        "delivery_timeout": "unset"
+      },
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 62,
+          "snippet": "{\"customer_lookup_updated.v1\"}"
+        }
+      ]
+    },
+    {
+      "via": "http",
+      "comment": "HTTP: external KMS (envelope encryption for the lookup events)",
+      "target_raw": {
+        "client": "app-a",
+        "host": "ext-kms.example.com/kms",
+        "resource_uri": "urn:resource:REDACTED"
+      },
+      "resolved": "kms-service",
+      "resolution_source": "client",
+      "retry": {
+        "http_retry_max_attempts": 5,
+        "timeouts": {
+          "connect_ms": null,
+          "read_ms": null
+        }
+      },
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 72,
+          "snippet": "{\"kms-uri: https://ext-kms.example.com/kms/api/rest/v1/\"}"
+        },
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 74,
+          "snippet": "{\"http_retry_max_attempts: 5\"}"
+        }
+      ]
+    },
+    {
+      "via": "http",
+      "comment": "HTTP: feature-flag service (feature flags (via internal cloud proxy))",
+      "target_raw": {
+        "client": "featureflagclient",
+        "host": "proxy.prod.example.com:11443"
+      },
+      "resolved": "feature-flags",
+      "resolution_source": "client",
+      "evidence": []
+    }
+  ],
+  "comment_inbound": "INBOUND: endpoints THIS service serves, HTTP callers are NOT in code (any client may call); the journey narrative names the caller",
+  "inbound": [
+    {
+      "via": "http",
+      "source_raw": {},
+      "resolved": null,
+      "resolve": "narrative",
+      "endpoint": "GET retrieveCustomerPlatform / retrieveAccountPlatform (ledger platform for account-id/account)",
+      "server_idempotency": "request-id (idempotency-store, postgres, retention PT15M)",
+      "auth": "Authorization header; OAUTHBEARER/SSO (server-validated)",
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-rest/src/main/java/com/example/platform/accts/lookup/mgmt/rest/controller/LookupController.java",
+          "line": 129,
+          "snippet": "{\"public ResponseEntity<AccountPlatformIndicatorResponse> retrieveAccountPlatformIndicator(..)\"}"
+        },
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 103,
+          "snippet": "{\"idempotency-key: \\\"request-id\\\"\"}"
+        }
+      ]
+    },
+    {
+      "via": "http",
+      "source_raw": {},
+      "resolved": null,
+      "resolve": "narrative",
+      "endpoint": "POST insertNewAccount / PUT updateAccount / createCustomerPlatform (lookup-writes)",
+      "server_idempotency": "request-id (idempotency-store, postgres, retention PT15M)",
+      "auth": "Authorization header; OAUTHBEARER/SSO (server-validated)",
+      "evidence": [
+        {
+          "file": "repos/app-a/app-a-rest/src/main/java/com/example/platform/accts/lookup/mgmt/rest/controller/LookupController.java",
+          "line": 116,
+          "snippet": "{\"public ResponseEntity<InsertNewAccountResponse> insertNewAccount(..))\"}"
+        },
+        {
+          "file": "repos/app-a/app-a-main/src/main/resources/application-prod-use1.yml",
+          "line": 103,
+          "snippet": "{\"idempotency-key: \\\"request-id\\\"\"}"
+        }
+      ]
+    }
+  ],
+  "comment_unresolved": "no unresolved identities in this card (all outbound targets resolved via stable signals)",
+  "unresolved": []
+}

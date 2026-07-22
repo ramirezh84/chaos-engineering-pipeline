@@ -1,0 +1,10 @@
+# OS / editor
+.DS_Store
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+# local scratch / notes
+.remember/
+/tmp/
