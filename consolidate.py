@@ -70,6 +70,12 @@ def evtxt(e):
     loc = f" ({file}:{line})" if file else ""
     return f"{val if val is not None else '—'} [{status}]{loc}"
 
+def ensure_parent_dir(path):
+    d = os.path.dirname(os.path.abspath(path))
+    if d and not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--workbook", required=True)
@@ -308,6 +314,7 @@ def main():
     ws.freeze_panes = "C2"
     ws.auto_filter.ref = f"A1:H{max(r-1,1)}"
 
+    ensure_parent_dir(args.out)
     wb.save(args.out)
     print(f"Wrote {args.out}")
     print("Open this workbook once in Excel (or run it through recalc.py if LibreOffice is "

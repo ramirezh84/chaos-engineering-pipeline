@@ -41,8 +41,8 @@ def is_journey(obj):
 def is_scan_card(obj):
     return isinstance(obj, dict) and "service" in obj and not is_journey(obj)
 
-def discover(root_dirs):
-    journeys, cards = [], {}
+def discover(root_dirs, collect_ignored=False):
+    journeys, cards, ignored = [], {}, []
     for root in root_dirs:
         paths = [root] if os.path.isfile(root) else glob.glob(os.path.join(root, "**", "*.json"), recursive=True)
         for p in paths:
@@ -51,7 +51,82 @@ def discover(root_dirs):
                 journeys.append((p, obj))
             elif is_scan_card(obj):
                 cards[obj["service"]] = (p, obj)
+            elif collect_ignored:
+                if obj is None:
+                    ignored.append((p, "not valid JSON"))
+                elif isinstance(obj, dict):
+                    ignored.append((p, "no top-level 'journey'+'nodes'+'edges' (journey) "
+                                       "and no top-level 'service' (scan card); keys: "
+                                       + ", ".join(list(obj.keys())[:6])))
+                else:
+                    ignored.append((p, "JSON is not an object"))
+    if collect_ignored:
+        return journeys, ignored
     return journeys, cards
+
+
+def report_inputs(journeys, cards, infra_mds, declared, ignored, args):
+    """--check: show what was found, how it joins, and what would be missing."""
+    print("=" * 72)
+    print("INPUT CHECK — nothing is generated in this mode")
+    print("=" * 72)
+    print(f"\nJourney files ...... {len(journeys)}")
+    for p, jf in journeys:
+        print(f"   [{jf.get('journey')}]  {os.path.basename(p)}  "
+              f"({len(jf.get('nodes', []))} nodes, {len(jf.get('edges', []))} edges, "
+              f"criticality={jf.get('criticality')})")
+    print(f"\nService scan cards . {len(cards)}")
+    for sid, (p, _) in sorted(cards.items()):
+        print(f"   [{sid}]  {os.path.basename(p)}")
+    print(f"\nInfra documents .... {len(infra_mds)}")
+    for sid, md in sorted(infra_mds.items()):
+        f = md.get("facts", {})
+        print(f"   [{sid}]  {f.get('source_file')}  "
+              f"({len(md.get('components', []))} components; id from {f.get('service_id_source')})")
+    if declared:
+        print(f"\ncomponents.json .... {len(declared)} service(s) declared")
+
+    print("\n" + "-" * 72)
+    print("JOIN REPORT — journey node id  ->  scan card / infra doc")
+    print("-" * 72)
+    unmatched = set()
+    for _, jf in journeys:
+        print(f"\n  {jf.get('journey')}")
+        for n in jf.get("nodes", []):
+            nid = n.get("id")
+            if not n.get("scanned"):
+                continue
+            has_card = "card" if nid in cards else "  - "
+            has_md = "infra" if nid in infra_mds else "  -  "
+            has_dec = "comp" if nid in declared else "  - "
+            flag = "" if (nid in cards or nid in infra_mds or nid in declared) else "   <-- NO ARTIFACTS"
+            if flag:
+                unmatched.add(nid)
+            print(f"     {nid:<42} [{has_card}] [{has_md}] [{has_dec}]{flag}")
+
+    if ignored:
+        print("\n" + "-" * 72)
+        print("JSON FILES IGNORED (neither journey nor scan card)")
+        print("-" * 72)
+        for p, why in ignored:
+            print(f"   {os.path.basename(p)}\n      reason: {why}")
+
+    print("\n" + "=" * 72)
+    if unmatched:
+        print(f"ACTION: {len(unmatched)} scanned node(s) have no artifacts and will produce")
+        print("        coverage gaps instead of scenarios:")
+        for u in sorted(unmatched):
+            print(f"          - {u}")
+        print("        Either supply their artifacts, or accept the gaps as documented.")
+    else:
+        print("All scanned journey nodes join to at least one artifact.")
+    weak = [s for s, md in infra_mds.items()
+            if str(md.get("facts", {}).get("service_id_source", "")).startswith("filename")]
+    if weak:
+        print(f"\nWARNING: service id guessed from the filename for: {', '.join(weak)}")
+        print("         Add a line `service: <canonical-id>` near the top of those .md files")
+        print("         so the id matches the journey node id exactly.")
+    print("=" * 72)
 
 # ---------------------------------------------------------------- scoring
 
@@ -96,25 +171,60 @@ INFRA_MD_COMPONENT_KEYWORDS = {
 }
 
 
+INFRA_MD_MARKERS = ("infra components", "infrastructure components",
+                    "components by environment", "| prod |", "| perf |",
+                    "data tier", "compute, scaling")
+
+
+def looks_like_infra_md(text):
+    """Content-based detection — filenames are for humans, not for the parser.
+    An explicit `service: <id>` front-matter line is decisive; otherwise two or
+    more structural markers are required so ordinary docs aren't picked up."""
+    import re as _re
+    if _re.search(r"^\s*service\s*:\s*[\w.\-]+\s*$", text, _re.M):
+        return True
+    low = text.lower()
+    return sum(1 for m in INFRA_MD_MARKERS if m in low) >= 2
+
+
 def parse_infra_md(path):
     import re as _re
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             text = f.read()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not looks_like_infra_md(text):
         return None
     low = text.lower()
 
-    # service id: "for **<service> (<ACR>)**" pattern, else filename stem
-    m = _re.search(r"for \*\*([a-z0-9-]+) \(", text)
-    service = m.group(1) if m else os.path.basename(path).split("-infra-components")[0]
+    # Canonical service id, in order of reliability:
+    #   1. explicit `service: <id>` front-matter line   (recommended)
+    #   2. "for **<service-id> (" prose pattern
+    #   3. filename stem with common suffixes stripped  (flagged as weak)
+    id_source = "front-matter"
+    m = _re.search(r"^\s*service\s*:\s*([\w.\-]+)\s*$", text, _re.M)
+    if not m:
+        m = _re.search(r"for \*\*([a-z0-9\-]+) \(", text)
+        id_source = "prose" if m else None
+    if m:
+        service = m.group(1)
+    else:
+        stem = os.path.splitext(os.path.basename(path))[0]
+        for suffix in ("-infra-components-by-env", "-Infrastructure-Components",
+                       "-infrastructure-components", "-infra-components", "-Infra", "-infra"):
+            if stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+        service = stem
+        id_source = "filename (WEAK — add a `service:` line to this file)"
 
     comps = set()
     for kw, comp in INFRA_MD_COMPONENT_KEYWORDS.items():
         if kw in low:
             comps.add(comp)
 
-    facts = {"source_file": os.path.basename(path)}
+    facts = {"source_file": os.path.basename(path), "service_id_source": id_source}
     m = _re.search(r"min (\d+) / max (\d+)", text)
     if m:
         facts["autoscale_min"], facts["autoscale_max"] = int(m.group(1)), int(m.group(2))
@@ -947,10 +1057,21 @@ def write_package(pkg, out_path, journeys, cards):
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:C{max(r-1,1)}"
 
+    ensure_parent_dir(out_path)
     wb.save(out_path)
     return len(rows), len(pkg.assertions), len(pkg.gaps)
 
 
+
+
+
+def ensure_parent_dir(path):
+    """Create the output file's folder if it doesn't exist. Prevents a
+    FileNotFoundError when --out points at a folder that isn't there yet
+    (notably '/tmp/...' on Windows, where /tmp does not exist)."""
+    d = os.path.dirname(os.path.abspath(path))
+    if d and not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)
 
 
 # ---------------------------------------------------------------- html output
@@ -1154,7 +1275,8 @@ render();
             "  <div id=\"cat\"></div>\n  <div id=\"gaps\"></div>\n</main>\n"
             "<script type=\"application/json\" id=\"pkgdata\">" + blob + "</script>\n"
             "<script>" + js + "</script></body></html>\n")
-    with open(out_path, "w") as f:
+    ensure_parent_dir(out_path)
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
 
 
@@ -1171,15 +1293,17 @@ def main():
     ap.add_argument("--components", default=None,
                     help="optional components.json: per-service infra component lists "
                          "(hand-filled now; replaced by infra scan output later)")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out", default=None,
+                    help="output .xlsx path (not required when using --check)")
+    ap.add_argument("--check", action="store_true",
+                    help="validate the inputs and report the join, then exit "
+                         "without generating anything")
     ap.add_argument("--html", default=None,
                     help="also write a single-file interactive HTML dashboard here")
     args = ap.parse_args()
 
-    journeys, _ = discover(args.root)
+    journeys, ignored_j = discover(args.root, collect_ignored=True)
     _, cards = discover(args.scan_cards)
-    if not journeys:
-        raise SystemExit("No journey files found (need top-level journey/nodes/edges).")
 
     declared = {}
     if args.components:
@@ -1189,13 +1313,21 @@ def main():
 
     infra_mds = {}
     for src in (args.infra_md or []):
-        paths = [src] if os.path.isfile(src) else glob.glob(os.path.join(src, "**", "*infra-components*"), recursive=True)
+        paths = [src] if os.path.isfile(src) else glob.glob(os.path.join(src, "**", "*.md"), recursive=True)
         for p in paths:
             parsed = parse_infra_md(p)
             if parsed:
                 infra_mds[parsed["service"]] = parsed
     if infra_mds:
         print(f"infra-md files ingested for: {sorted(infra_mds)}")
+
+    if args.check:
+        report_inputs(journeys, cards, infra_mds, declared, ignored_j, args)
+        return
+    if not journeys:
+        raise SystemExit("No journey files found (need top-level journey/nodes/edges).")
+    if not args.out:
+        raise SystemExit("--out is required unless you are running --check.")
 
     pkg = generate(journeys, cards, declared, infra_mds)
     n_rows, n_assert, n_gaps = write_package(pkg, args.out, journeys, cards)

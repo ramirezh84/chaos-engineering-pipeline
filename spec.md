@@ -10,6 +10,58 @@ end, phase by phase, checkpointing to disk as you go."
 
 ---
 
+---
+
+## READ FIRST — do you even need the repo scan?
+
+**The package generator never reads source repositories.** It consumes exactly three artifact
+types, and nothing else:
+
+| Artifact | One per | What the generator takes from it |
+|---|---|---|
+| Journey graph JSON | journey | criticality, profile (data class, volume), nodes (scanned flag, survivability: replica counts, autoscaling, DB failover, regions, grade), edges (from/to, via, grade, intent, caller/callee known, timeout, retry, fallback, idempotency, consumer ack/error-handler/DLT, producer encryption), unresolved list |
+| Service scan card JSON | service | canonical `service` id, resiliency block (circuit breaker, retry instances/attempts), outbound (via, topic, producer delivery timeout, resolved target, HTTP retry), inbound (server idempotency), DNS/host registrations, Kafka auth (protocol, mechanism, token provider) |
+| `<app>-infra-components-by-env.md` | service | component list, plus autoscaling min/max, replica baseline, AZ counts per environment, NLB/ALB idle timeouts, DNS record type, per-environment caching differences, circuit-breaker posture |
+
+**If another process already produces those three artifacts, do not re-run Phases 0–6.** They
+exist to *create* those artifacts for teams that don't have them. Duplicating a scan another
+agent is already running wastes time and risks two divergent sources of truth for the same
+service.
+
+**The efficient path when the artifacts already exist:**
+
+0. Validate the join first: `python3 chaos_package_generator.py --root src --scan-cards src
+   --infra-md src --check`. This generates nothing and reports which journey nodes actually
+   resolve to a scan card or infra document, which JSON files were ignored and why, and any
+   infra document whose service id had to be guessed from its filename. Discovery is
+   content-based for all three artifact types, so filenames and folder structure are free —
+   but the canonical service id *inside* each artifact must match the journey node id exactly,
+   and this is the step that proves it.
+1. Run the generator on what you have (Section 9).
+2. Read the **Coverage Gaps** sheet — it names precisely what was missing and what could not be
+   generated as a result.
+3. Scan *only* for what those gaps demand, and only for the services they name.
+
+That keeps scanning demand-driven instead of speculative — the same evidence discipline the rest
+of this runbook applies to scenarios.
+
+**What a deeper repo scan adds that the three artifacts typically don't carry** (decide per gap,
+not up front):
+
+- **Anti-pattern sweep** — swallowed exceptions around remote calls, unbounded async executors,
+  HTTP clients constructed with no timeout, blocking work inside message-listener threads. None
+  of these appear in a journey graph or a component declaration.
+- **Exhaustive consumer settings** — `auto.offset.reset`, `enable.auto.commit`,
+  `max.poll.interval.ms`, DLQ wiring for consumers that don't appear on a mapped journey edge.
+- **Full timeout-chain extraction** for call paths not represented as a journey edge.
+- **Idempotency suspicion ranking** across every write path, rather than only the declared
+  inbound endpoints.
+- **Per-key config diffs** beyond what the environment comparison document already states.
+
+If your existing artifacts already cover a category, that category needs no scan.
+
+---
+
 ## 0. Purpose & operating principles
 
 You are extracting **evidence**, not writing an assessment from memory or convention. The
@@ -1266,7 +1318,12 @@ rest of this file as its working instructions.
 ```
 Read spec.md in this directory in full before doing anything else.
 
-Execute it phase by phase, in order: Section 1 (preflight + repo discovery), Section 2
+FIRST: read the "READ FIRST — do you even need the repo scan?" section. If the three input
+artifacts (journey graphs, service scan cards, infra-components-by-env files) already exist
+because another process produces them, SKIP Phases 0-6 entirely and go straight to Section 9
+(Phase 7 — journey graph ingestion and package generation). Report what you skipped and why.
+
+Otherwise, execute phase by phase, in order: Section 1 (preflight + repo discovery), Section 2
 (Phase 0 — sync & provenance), Section 3 (Phase 1 — census), Section 4 (Phase 2 — parallel
 app-repo extraction), Section 5 (Phase 3 — parallel infra-repo extraction), Section 6
 (Phase 4 — profile diff), Section 7 (Phase 5 — consolidation), Section 8 (Phase 6 — standards),
